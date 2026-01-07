@@ -1,0 +1,145 @@
+.componentTachometer {
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 420px;
+  min-width: 260px;
+  height: auto;
+  margin: 0 auto;
+}
+
+.componentTachometer .wrapper {
+  background: linear-gradient(180deg, rgba(123, 212, 211, 0.05) 0%, rgba(123, 212, 211, 0) 100%);
+  position: relative;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.componentTachometer .wrapper:before {
+  content: "";
+  position: absolute;
+  width: 100%;
+  height: 1px;
+  z-index: 0;
+  background: rgba(255, 255, 255, 0.33);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.componentTachometer .wrapper:after {
+  content: "";
+  position: absolute;
+  width: 100%;
+  height: 1px;
+  z-index: 0;
+  background: rgba(255, 255, 255, 0.33);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.componentTachometer .circle {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 100px;
+  transition: all 0.5s ease;
+  background: radial-gradient(45.06% 45.06% at 39.97% 63.69%, rgba(123, 212, 211, 0.6) 0%, rgba(64, 110, 109, 0.6) 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.33);
+}
+
+.componentTachometer .mid {
+  position: absolute;
+  width: 75%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 80px;
+  z-index: 0;
+  border: 1.5px solid rgba(255, 255, 255, 0.33);
+  border-style: dashed;
+  backdrop-filter: blur(100px);
+  background: rgba(7, 8, 8, 0.063);
+}
+
+.componentTachometer .inner {
+  z-index: 1;
+  position: absolute;
+  width: 50%;
+  height: auto;
+  aspect-ratio: 1;
+  background: #070808;
+  border-radius: 50px;
+  backdrop-filter: blur(100px);
+  border: 1.5px solid rgba(255, 255, 255, 0.33);
+}
+
+.componentTachometer .label {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.componentTachometer .label h2 {
+  font-weight: 300;
+  font-size: 50px;
+  line-height: 77%;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+
+.componentTachometer .label p {
+  margin: 0;
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+.componentTachometer .counter1 {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 20px;
+  line-height: 77%;
+  color: rgba(255, 255, 255, 0.33);
+}
+
+.componentTachometer .counter2 {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  font-size: 20px;
+  line-height: 77%;
+  color: rgba(255, 255, 255, 0.33);
+}
+
+.componentTachometer .counter3 {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  font-size: 20px;
+  line-height: 77%;
+  color: rgba(255, 255, 255, 0.33);
+}
+
+.componentTachometer .counter4 {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: 20px;
+  line-height: 77%;
+  color: rgba(255, 255, 255, 0.33);
+}
