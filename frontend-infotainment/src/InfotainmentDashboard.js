@@ -5,6 +5,7 @@ import settingsService from './services/SettingsService';
 import { Droplet, Thermometer, Battery, Zap, Music, Navigation, Sun, Moon, Home, Settings } from 'lucide-react';
 import NavigationComponent from './components/Navigation/NavigationComponent';
 import MediaPlayer from './components/Media/MediaPlayer';
+import BatteryMonitor from './components/Battery/BatteryMonitor';
 
 // ============================================
 // COMPONENTI SPOSTATI FUORI (NON PIÙ DENTRO InfotainmentDashboard)
@@ -227,7 +228,8 @@ const InfotainmentDashboard = () => {
               temperature_inside={data.temperature_inside}
               temperature_outside={data.temperature_outside}
             />
-            <BatteryStatus battery_service={data.battery_service} />
+            {/*<BatteryStatus battery_service={data.battery_service} />*/}
+            <BatteryMonitor />
             <LightControl lights={data.lights} onToggleLight={toggleLight} />
           </div>
         );
