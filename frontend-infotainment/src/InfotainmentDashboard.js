@@ -1,4 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import Splashscreen from './components/Splashscreen/SplashScreen';
+import SettingsPanel from './components/Settings/Panel';
+import settingsService from './services/SettingsService';
 import { Droplet, Thermometer, Battery, Zap, Music, Navigation, Sun, Moon, Home, Settings } from 'lucide-react';
 import NavigationComponent from './components/Navigation/NavigationComponent';
 import MediaPlayer from './components/Media/MediaPlayer';
@@ -141,6 +144,14 @@ const TabButton = ({ icon: Icon, label, tabId, currentTab, onClick }) => (
 // ============================================
 
 const InfotainmentDashboard = () => {
+  const [showSplash, setShowSplash] = useState(true);
+  const [settings] = useState(() => settingsService.getAll());
+  
+  // ✅ useCallback con dipendenze vuote - NON cambia mai
+  const handleSplashComplete = useCallback(() => {
+    console.log('✅ Dashboard: splashscreen completato');
+    setShowSplash(false);
+  }, []); // ✅ Array vuoto - funzione stabile
   const [data, setData] = useState({
     water_tank: 80,
     grey_water: 20,
@@ -236,21 +247,21 @@ const InfotainmentDashboard = () => {
           </div>
         );
       case 'settings':
-        return (
-          <div className="bg-gray-800 rounded-2xl p-6">
-            <div className="flex items-center gap-3 mb-6">
-              <Settings className="w-8 h-8 text-gray-400" />
-              <h3 className="text-2xl font-semibold text-white">Impostazioni</h3>
-            </div>
-            <div className="text-gray-400 text-center py-20">
-              Pannello impostazioni in sviluppo
-            </div>
-          </div>
-        );
+        return <SettingsPanel settingsService={settingsService} />;
       default:
         return null;
     }
   };
+
+  // MOSTRA SPLASHSCREEN SE ABILITATO E NON COMPLETATO
+  if (showSplash && settings.interface.splashscreen.enabled) {
+    return (
+      <Splashscreen 
+        settings={settings}
+        onComplete={handleSplashComplete}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-6">
