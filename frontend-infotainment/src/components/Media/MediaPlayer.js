@@ -1,292 +1,339 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Music, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
-  Radio, Bluetooth, Usb, List, Heart, Shuffle, Repeat, Wifi
+  Radio, Bluetooth, Usb, List, RefreshCw, Wifi, Power, Upload
 } from 'lucide-react';
 
-/**
- * Componente Media Player funzionante
- * Supporta Radio FM (streaming), Bluetooth, USB (file locali)
- */
+const API_BASE = 'http://localhost:8000/api/media';
+
 const MediaPlayer = () => {
   const [source, setSource] = useState('radio');
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTrack, setCurrentTrack] = useState(null);
   const [volume, setVolume] = useState(70);
   const [isMuted, setIsMuted] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [isShuffled, setIsShuffled] = useState(false);
-  const [repeatMode, setRepeatMode] = useState('off');
   const [showPlaylist, setShowPlaylist] = useState(false);
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   
-  const audioRef = useRef(new Audio());
-  const progressInterval = useRef(null);
-  const fileInputRef = useRef(null);
+  // FM
+  const [fmStations, setFmStations] = useState([]);
+  const [isScanning, setIsScanning] = useState(false);
+  
+  // Bluetooth
+  const [btDevices, setBtDevices] = useState([]);
+  const [btConnected, setBtConnected] = useState(false);
+  const [isBtScanning, setIsBtScanning] = useState(false);
+  
+  // USB
+  const [usbDrives, setUsbDrives] = useState([]);
+  const [usbFiles, setUsbFiles] = useState([]);
+  const [selectedDrive, setSelectedDrive] = useState(null);
+  
+  // Hardware check
+  const [hardware, setHardware] = useState({ rtl_sdr: false, bluetooth: false, usb: false });
 
-  // Radio FM stations (streaming URLs reali)
-  const radioStations = [
-    { 
-      id: 1, 
-      name: 'Radio Italia', 
-      frequency: '102.5', 
-      genre: 'Pop Italiano',
-      url: 'https://radioitaliasmr.akamaized.net/hls/live/2093117/SmrRadioItalia/stream02/streamPlaylist.m3u8'
-    },
-    { 
-      id: 2, 
-      name: 'RTL 102.5', 
-      frequency: '102.5', 
-      genre: 'Hits',
-      url: 'https://streamingv2.shoutcast.com/rtl-102-5'
-    },
-    { 
-      id: 3, 
-      name: 'Radio Capital', 
-      frequency: '107.2', 
-      genre: 'Rock',
-      url: 'https://radiocapital-lh.akamaihd.net/i/RadioCapital_Live@196312/master.m3u8'
-    },
-    { 
-      id: 4, 
-      name: 'Radio 105', 
-      frequency: '105.0', 
-      genre: 'Dance',
-      url: 'https://icy.unitedradio.it/Radio105.mp3'
-    },
-    { 
-      id: 5, 
-      name: 'Virgin Radio', 
-      frequency: '104.5', 
-      genre: 'Rock/Pop',
-      url: 'https://icecast.unitedradio.it/Virgin.mp3'
-    }
-  ];
-
-  // Playlist locale (da file caricati)
-  const [localPlaylist, setLocalPlaylist] = useState([]);
-
-  /**
-   * Setup audio element
-   */
+  // Verifica hardware disponibile
   useEffect(() => {
-    const audio = audioRef.current;
+    checkHardware();
+  }, []);
 
-    // Event listeners
-    const updateProgress = () => {
-      setProgress(audio.currentTime);
-      setDuration(audio.duration || 0);
-    };
-
-    const handleEnded = () => {
-      if (repeatMode === 'one') {
-        audio.currentTime = 0;
-        audio.play();
-      } else if (repeatMode === 'all' || source === 'radio') {
-        nextTrack();
-      } else {
-        setIsPlaying(false);
+  const checkHardware = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/hardware-check`);
+      const data = await res.json();
+      setHardware(data);
+      
+      if (!data.rtl_sdr && source === 'radio') {
+        setError('⚠️ RTL-SDR non collegato. Collega il dongle USB.');
       }
-    };
+    } catch (err) {
+      console.error('Errore verifica hardware:', err);
+    }
+  };
 
-    const handleError = (e) => {
-      console.error('Audio error:', e);
-      setError('Errore riproduzione. Verifica la connessione.');
-      setIsPlaying(false);
-      setIsLoading(false);
-    };
-
-    const handleLoadStart = () => {
-      setIsLoading(true);
-      setError(null);
-    };
-
-    const handleCanPlay = () => {
-      setIsLoading(false);
-      setError(null);
-    };
-
-    audio.addEventListener('timeupdate', updateProgress);
-    audio.addEventListener('ended', handleEnded);
-    audio.addEventListener('error', handleError);
-    audio.addEventListener('loadstart', handleLoadStart);
-    audio.addEventListener('canplay', handleCanPlay);
-
-    return () => {
-      audio.removeEventListener('timeupdate', updateProgress);
-      audio.removeEventListener('ended', handleEnded);
-      audio.removeEventListener('error', handleError);
-      audio.removeEventListener('loadstart', handleLoadStart);
-      audio.removeEventListener('canplay', handleCanPlay);
-    };
-  }, [repeatMode, source]);
-
-  /**
-   * Gestisci volume
-   */
-  useEffect(() => {
-    const audio = audioRef.current;
-    audio.volume = isMuted ? 0 : volume / 100;
-  }, [volume, isMuted]);
-
-  /**
-   * Play track
-   */
-  const play = async (track = null) => {
-    const audio = audioRef.current;
+  // ==================== RADIO FM ====================
+  
+  const scanFMStations = async () => {
+    setIsScanning(true);
+    setError(null);
     
     try {
-      if (track) {
-        setCurrentTrack(track);
-        setProgress(0);
-        
-        // Imposta sorgente
-        if (source === 'radio') {
-          audio.src = track.url;
-          setDuration(0); // Radio è streaming, no durata
-        } else {
-          audio.src = track.url;
-          setDuration(track.duration || 0);
+      const res = await fetch(`${API_BASE}/fm/scan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          start_freq: 88.0,
+          end_freq: 108.0,
+          step: 0.2
+        })
+      });
+      
+      const data = await res.json();
+      
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setFmStations(data.stations || []);
+        if (data.stations.length === 0) {
+          setError('Nessuna stazione FM trovata. Verifica antenna RTL-SDR.');
         }
       }
-      
-      await audio.play();
-      setIsPlaying(true);
-      setError(null);
     } catch (err) {
-      console.error('Play error:', err);
-      setError('Impossibile riprodurre. Premi play di nuovo.');
+      setError('Errore scansione FM. Verifica RTL-SDR collegato.');
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const tuneFMStation = async (frequency) => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const res = await fetch(`${API_BASE}/fm/tune`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frequency })
+      });
+      
+      const data = await res.json();
+      
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setCurrentTrack({
+          type: 'fm',
+          frequency,
+          name: `FM ${frequency}`
+        });
+        setIsPlaying(true);
+      }
+    } catch (err) {
+      setError('Errore sintonizzazione FM');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const stopFM = async () => {
+    try {
+      await fetch(`${API_BASE}/fm/stop`, { method: 'POST' });
       setIsPlaying(false);
+    } catch (err) {
+      console.error('Errore stop FM:', err);
     }
   };
 
-  /**
-   * Pause
-   */
-  const pause = () => {
-    audioRef.current.pause();
-    setIsPlaying(false);
-  };
-
-  /**
-   * Next track
-   */
-  const nextTrack = () => {
-    if (!currentTrack) return;
-
-    const playlist = source === 'radio' ? radioStations : localPlaylist;
-    const currentIndex = playlist.findIndex(t => t.id === currentTrack.id);
+  // ==================== BLUETOOTH ====================
+  
+  const scanBluetoothDevices = async () => {
+    setIsBtScanning(true);
+    setError(null);
     
-    let nextIndex;
-    if (isShuffled) {
-      nextIndex = Math.floor(Math.random() * playlist.length);
-    } else {
-      nextIndex = (currentIndex + 1) % playlist.length;
+    try {
+      const res = await fetch(`${API_BASE}/bluetooth/scan?timeout=10`);
+      const data = await res.json();
+      
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setBtDevices(data.devices || []);
+        if (data.devices.length === 0) {
+          setError('Nessun dispositivo Bluetooth trovato. Attiva Bluetooth sul telefono.');
+        }
+      }
+    } catch (err) {
+      setError('Errore scansione Bluetooth');
+    } finally {
+      setIsBtScanning(false);
     }
-    
-    const nextSong = playlist[nextIndex];
-    play(nextSong);
   };
 
-  /**
-   * Previous track
-   */
-  const previousTrack = () => {
-    if (!currentTrack) return;
-
-    const playlist = source === 'radio' ? radioStations : localPlaylist;
-    const currentIndex = playlist.findIndex(t => t.id === currentTrack.id);
-    const prevIndex = (currentIndex - 1 + playlist.length) % playlist.length;
-    const prevSong = playlist[prevIndex];
+  const connectBluetooth = async (macAddress, deviceName) => {
+    setIsLoading(true);
+    setError(null);
     
-    play(prevSong);
+    try {
+      const res = await fetch(`${API_BASE}/bluetooth/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac_address: macAddress })
+      });
+      
+      const data = await res.json();
+      
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setBtConnected(true);
+        setCurrentTrack({
+          type: 'bluetooth',
+          name: deviceName,
+          mac: macAddress
+        });
+        setIsPlaying(true);
+      }
+    } catch (err) {
+      setError('Errore connessione Bluetooth');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  /**
-   * Change source
-   */
-  const changeSource = (newSource) => {
-    pause();
+  const disconnectBluetooth = async () => {
+    try {
+      await fetch(`${API_BASE}/bluetooth/disconnect`, { method: 'POST' });
+      setBtConnected(false);
+      setIsPlaying(false);
+      setCurrentTrack(null);
+    } catch (err) {
+      console.error('Errore disconnessione BT:', err);
+    }
+  };
+
+  // ==================== USB ====================
+  
+  const scanUSBDrives = async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const res = await fetch(`${API_BASE}/usb/scan`);
+      const data = await res.json();
+      
+      setUsbDrives(data.devices || []);
+      
+      if (data.count === 0) {
+        setError('Nessuna USB con musica trovata. Inserisci chiavetta USB.');
+      } else {
+        // Auto-seleziona primo drive
+        if (data.devices.length > 0) {
+          selectUSBDrive(data.devices[0]);
+        }
+      }
+    } catch (err) {
+      setError('Errore lettura USB');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const selectUSBDrive = (drive) => {
+    setSelectedDrive(drive);
+    setUsbFiles(drive.files || []);
+  };
+
+  const playUSBFile = async (filepath, metadata) => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const res = await fetch(`${API_BASE}/usb/play`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filepath })
+      });
+      
+      const data = await res.json();
+      
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setCurrentTrack({
+          type: 'usb',
+          ...metadata
+        });
+        setIsPlaying(true);
+      }
+    } catch (err) {
+      setError('Errore riproduzione file');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const stopUSB = async () => {
+    try {
+      await fetch(`${API_BASE}/usb/stop`, { method: 'POST' });
+      setIsPlaying(false);
+    } catch (err) {
+      console.error('Errore stop USB:', err);
+    }
+  };
+
+  // ==================== CONTROLLI ====================
+
+  const handleSourceChange = async (newSource) => {
+    // Stop sorgente corrente
+    await stopAll();
+    
     setSource(newSource);
     setCurrentTrack(null);
-    setProgress(0);
     setError(null);
-  };
-
-  /**
-   * Handle file upload (USB/Bluetooth simulation)
-   */
-  const handleFileUpload = (event) => {
-    const files = Array.from(event.target.files);
-    const audioFiles = files.filter(file => 
-      file.type.startsWith('audio/')
-    );
-
-    const newTracks = audioFiles.map((file, index) => {
-      const url = URL.createObjectURL(file);
-      
-      return {
-        id: `local_${Date.now()}_${index}`,
-        title: file.name.replace(/\.[^/.]+$/, ""),
-        artist: 'Artista Sconosciuto',
-        duration: 0, // Will be set on load
-        album: 'Album Locale',
-        url: url,
-        file: file
-      };
-    });
-
-    setLocalPlaylist(prev => [...prev, ...newTracks]);
-    setError(null);
-  };
-
-  /**
-   * Seek in track
-   */
-  const handleProgressClick = (e) => {
-    if (source === 'radio' || !duration) return; // No seek per radio
     
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const newProgress = (x / rect.width) * duration;
-    
-    audioRef.current.currentTime = newProgress;
-    setProgress(newProgress);
+    // Auto-scan per nuova sorgente
+    if (newSource === 'radio' && fmStations.length === 0) {
+      scanFMStations();
+    } else if (newSource === 'bluetooth' && btDevices.length === 0) {
+      scanBluetoothDevices();
+    } else if (newSource === 'usb' && usbDrives.length === 0) {
+      scanUSBDrives();
+    }
   };
 
-  /**
-   * Format time
-   */
-  const formatTime = (seconds) => {
-    if (!seconds || isNaN(seconds)) return '--:--';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  const stopAll = async () => {
+    try {
+      await fetch(`${API_BASE}/stop-all`, { method: 'POST' });
+      setIsPlaying(false);
+    } catch (err) {
+      console.error('Errore stop:', err);
+    }
   };
 
-  /**
-   * Toggle repeat mode
-   */
-  const toggleRepeat = () => {
-    const modes = ['off', 'all', 'one'];
-    const currentIndex = modes.indexOf(repeatMode);
-    setRepeatMode(modes[(currentIndex + 1) % modes.length]);
+  const togglePlayPause = () => {
+    if (isPlaying) {
+      if (source === 'radio') stopFM();
+      else if (source === 'usb') stopUSB();
+      else if (source === 'bluetooth') disconnectBluetooth();
+    } else {
+      // Resume/start
+      if (currentTrack) {
+        if (source === 'radio') tuneFMStation(currentTrack.frequency);
+        else if (source === 'usb') playUSBFile(currentTrack.path, currentTrack);
+      }
+    }
   };
+
+  // ==================== RENDER ====================
 
   return (
     <div className="bg-gray-800 rounded-2xl p-6 h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <Music className="w-8 h-8 text-purple-400" />
-        <h2 className="text-2xl font-semibold text-white">Media Player</h2>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <Music className="w-8 h-8 text-purple-400" />
+          <h2 className="text-2xl font-semibold text-white">Media Player Hardware</h2>
+        </div>
+        
+        {/* Hardware status */}
+        <div className="flex gap-2">
+          <div className={`px-2 py-1 rounded text-xs ${hardware.rtl_sdr ? 'bg-green-600' : 'bg-red-600'}`}>
+            📡 FM {hardware.rtl_sdr ? 'OK' : 'OFF'}
+          </div>
+          <div className={`px-2 py-1 rounded text-xs ${hardware.bluetooth ? 'bg-green-600' : 'bg-gray-600'}`}>
+            🔵 BT {hardware.bluetooth ? 'OK' : 'OFF'}
+          </div>
+          <div className={`px-2 py-1 rounded text-xs ${hardware.usb ? 'bg-green-600' : 'bg-gray-600'}`}>
+            💾 USB {hardware.usb ? 'OK' : 'OFF'}
+          </div>
+        </div>
       </div>
 
       {/* Source selection */}
       <div className="flex gap-3 mb-6">
         <button
-          onClick={() => changeSource('radio')}
+          onClick={() => handleSourceChange('radio')}
           className={`flex-1 p-4 rounded-xl transition-all ${
             source === 'radio' 
               ? 'bg-purple-600 text-white' 
@@ -297,10 +344,7 @@ const MediaPlayer = () => {
           <div className="text-sm">Radio FM</div>
         </button>
         <button
-          onClick={() => {
-            changeSource('bluetooth');
-            fileInputRef.current?.click();
-          }}
+          onClick={() => handleSourceChange('bluetooth')}
           className={`flex-1 p-4 rounded-xl transition-all ${
             source === 'bluetooth' 
               ? 'bg-blue-600 text-white' 
@@ -311,10 +355,7 @@ const MediaPlayer = () => {
           <div className="text-sm">Bluetooth</div>
         </button>
         <button
-          onClick={() => {
-            changeSource('usb');
-            fileInputRef.current?.click();
-          }}
+          onClick={() => handleSourceChange('usb')}
           className={`flex-1 p-4 rounded-xl transition-all ${
             source === 'usb' 
               ? 'bg-green-600 text-white' 
@@ -326,116 +367,97 @@ const MediaPlayer = () => {
         </button>
       </div>
 
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="audio/*"
-        multiple
-        onChange={handleFileUpload}
-        className="hidden"
-      />
+      {/* Error message */}
+      {error && (
+        <div className="mb-4 p-3 bg-red-600 bg-opacity-20 border border-red-600 rounded-lg">
+          <div className="text-red-400 text-sm">{error}</div>
+        </div>
+      )}
 
-      {/* Main player area */}
-      <div className="flex-1 flex flex-col justify-between">
-        {/* Cover / Track info */}
+      {/* Main area */}
+      <div className="flex-1 flex flex-col">
+        
+        {/* Current track */}
         <div className="bg-gray-700 rounded-xl p-8 mb-6">
           {currentTrack ? (
             <div className="text-center">
               <div className={`w-32 h-32 mx-auto mb-4 rounded-lg flex items-center justify-center ${
-                source === 'radio' ? 'bg-purple-600' : 'bg-gradient-to-br from-purple-600 to-blue-600'
+                source === 'radio' ? 'bg-purple-600' : 
+                source === 'bluetooth' ? 'bg-blue-600' : 'bg-green-600'
               } ${isLoading ? 'animate-pulse' : ''}`}>
-                {source === 'radio' ? (
-                  isLoading ? <Wifi className="w-16 h-16 text-white animate-pulse" /> : <Radio className="w-16 h-16 text-white" />
-                ) : (
-                  <Music className="w-16 h-16 text-white" />
-                )}
+                {source === 'radio' && <Radio className="w-16 h-16 text-white" />}
+                {source === 'bluetooth' && <Bluetooth className="w-16 h-16 text-white" />}
+                {source === 'usb' && <Music className="w-16 h-16 text-white" />}
               </div>
               
               <div className="text-2xl font-bold text-white mb-2">
-                {source === 'radio' ? currentTrack.name : currentTrack.title}
+                {currentTrack.name || currentTrack.title}
               </div>
-              <div className="text-lg text-gray-400">
-                {source === 'radio' ? currentTrack.frequency + ' FM' : currentTrack.artist}
-              </div>
-              {source !== 'radio' && (
-                <div className="text-sm text-gray-500 mt-1">{currentTrack.album}</div>
+              
+              {source === 'radio' && (
+                <div className="text-lg text-gray-400">{currentTrack.frequency} FM</div>
               )}
-              {isLoading && (
-                <div className="text-sm text-blue-400 mt-2">Caricamento...</div>
+              {source === 'bluetooth' && (
+                <div className="text-sm text-gray-400">Dispositivo connesso</div>
+              )}
+              {source === 'usb' && (
+                <>
+                  <div className="text-lg text-gray-400">{currentTrack.artist}</div>
+                  <div className="text-sm text-gray-500">{currentTrack.album}</div>
+                </>
               )}
             </div>
           ) : (
             <div className="text-center py-12">
               <Music className="w-20 h-20 text-gray-600 mx-auto mb-4" />
               <div className="text-gray-400 text-lg mb-4">
-                {source === 'radio' 
-                  ? 'Seleziona una stazione radio' 
-                  : localPlaylist.length > 0
-                    ? 'Seleziona un brano dalla playlist'
-                    : 'Carica file audio'}
+                {source === 'radio' && 'Scansiona frequenze FM'}
+                {source === 'bluetooth' && 'Cerca dispositivi Bluetooth'}
+                {source === 'usb' && 'Cerca musica su USB'}
               </div>
-              {(source === 'bluetooth' || source === 'usb') && localPlaylist.length === 0 && (
+              
+              {/* Scan buttons */}
+              {source === 'radio' && (
                 <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="bg-purple-600 hover:bg-purple-700 px-6 py-3 rounded-lg text-white font-semibold"
+                  onClick={scanFMStations}
+                  disabled={isScanning}
+                  className="bg-purple-600 hover:bg-purple-700 px-6 py-3 rounded-lg text-white font-semibold disabled:opacity-50 flex items-center gap-2 mx-auto"
                 >
-                  📁 Carica File Audio
+                  {isScanning ? <Wifi className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />}
+                  {isScanning ? 'Scansione...' : 'Scansiona FM'}
+                </button>
+              )}
+              
+              {source === 'bluetooth' && (
+                <button
+                  onClick={scanBluetoothDevices}
+                  disabled={isBtScanning}
+                  className="bg-blue-600 hover:bg-blue-700 px-6 py-3 rounded-lg text-white font-semibold disabled:opacity-50 flex items-center gap-2 mx-auto"
+                >
+                  {isBtScanning ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Bluetooth className="w-5 h-5" />}
+                  {isBtScanning ? 'Ricerca...' : 'Cerca Dispositivi'}
+                </button>
+              )}
+              
+              {source === 'usb' && (
+                <button
+                  onClick={scanUSBDrives}
+                  disabled={isLoading}
+                  className="bg-green-600 hover:bg-green-700 px-6 py-3 rounded-lg text-white font-semibold disabled:opacity-50 flex items-center gap-2 mx-auto"
+                >
+                  {isLoading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Usb className="w-5 h-5" />}
+                  {isLoading ? 'Ricerca...' : 'Cerca USB'}
                 </button>
               )}
             </div>
           )}
         </div>
 
-        {/* Error message */}
-        {error && (
-          <div className="mb-4 p-3 bg-red-600 bg-opacity-20 border border-red-600 rounded-lg">
-            <div className="text-red-400 text-sm text-center">{error}</div>
-          </div>
-        )}
-
-        {/* Progress bar (not for radio) */}
-        {currentTrack && source !== 'radio' && duration > 0 && (
-          <div className="mb-6">
-            <div 
-              className="w-full bg-gray-700 rounded-full h-2 cursor-pointer"
-              onClick={handleProgressClick}
-            >
-              <div 
-                className="bg-purple-600 h-2 rounded-full transition-all"
-                style={{ width: `${(progress / duration) * 100}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-xs text-gray-400 mt-1">
-              <span>{formatTime(progress)}</span>
-              <span>{formatTime(duration)}</span>
-            </div>
-          </div>
-        )}
-
         {/* Controls */}
         <div className="flex items-center justify-center gap-6 mb-6">
           <button
-            onClick={() => setIsShuffled(!isShuffled)}
-            className={`p-3 rounded-lg transition-colors ${
-              isShuffled ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-            }`}
-            disabled={source === 'radio'}
-          >
-            <Shuffle className="w-5 h-5" />
-          </button>
-
-          <button
-            onClick={previousTrack}
-            disabled={!currentTrack}
-            className="p-4 bg-gray-700 hover:bg-gray-600 rounded-full transition-colors disabled:opacity-50"
-          >
-            <SkipBack className="w-6 h-6 text-white" />
-          </button>
-
-          <button
-            onClick={() => isPlaying ? pause() : play(currentTrack)}
-            disabled={!currentTrack && (source !== 'radio')}
+            onClick={togglePlayPause}
+            disabled={!currentTrack && source !== 'bluetooth'}
             className="p-6 bg-purple-600 hover:bg-purple-700 rounded-full transition-colors disabled:opacity-50"
           >
             {isPlaying ? (
@@ -443,25 +465,6 @@ const MediaPlayer = () => {
             ) : (
               <Play className="w-8 h-8 text-white ml-1" />
             )}
-          </button>
-
-          <button
-            onClick={nextTrack}
-            disabled={!currentTrack}
-            className="p-4 bg-gray-700 hover:bg-gray-600 rounded-full transition-colors disabled:opacity-50"
-          >
-            <SkipForward className="w-6 h-6 text-white" />
-          </button>
-
-          <button
-            onClick={toggleRepeat}
-            className={`p-3 rounded-lg transition-colors ${
-              repeatMode !== 'off' ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-            }`}
-            disabled={source === 'radio'}
-          >
-            <Repeat className="w-5 h-5" />
-            {repeatMode === 'one' && <span className="text-xs ml-1">1</span>}
           </button>
         </div>
 
@@ -471,7 +474,7 @@ const MediaPlayer = () => {
             onClick={() => setIsMuted(!isMuted)}
             className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
           >
-            {isMuted || volume === 0 ? (
+            {isMuted ? (
               <VolumeX className="w-5 h-5 text-white" />
             ) : (
               <Volume2 className="w-5 h-5 text-white" />
@@ -487,76 +490,99 @@ const MediaPlayer = () => {
               setVolume(parseInt(e.target.value));
               if (isMuted) setIsMuted(false);
             }}
-            className="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
-            style={{
-              background: `linear-gradient(to right, #9333ea ${volume}%, #374151 ${volume}%)`
-            }}
+            className="flex-1 h-2 bg-gray-700 rounded-lg"
           />
           
           <span className="text-white text-sm w-12 text-right">{isMuted ? 0 : volume}%</span>
         </div>
 
-        {/* Playlist button */}
+        {/* Lista */}
         <button
           onClick={() => setShowPlaylist(!showPlaylist)}
           className="w-full bg-gray-700 hover:bg-gray-600 p-4 rounded-xl transition-colors flex items-center justify-center gap-2"
         >
           <List className="w-5 h-5 text-white" />
           <span className="text-white">
-            {source === 'radio' ? 'Stazioni Radio' : `Playlist (${localPlaylist.length})`}
+            {source === 'radio' && `Stazioni FM (${fmStations.length})`}
+            {source === 'bluetooth' && `Dispositivi BT (${btDevices.length})`}
+            {source === 'usb' && `File USB (${usbFiles.length})`}
           </span>
         </button>
       </div>
 
-      {/* Playlist overlay */}
+      {/* Playlist/Devices overlay */}
       {showPlaylist && (
         <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-end">
           <div className="bg-gray-800 w-full rounded-t-2xl p-6 max-h-[70vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-xl font-bold text-white">
-                {source === 'radio' ? 'Stazioni Radio' : 'Playlist'}
+                {source === 'radio' && 'Stazioni FM'}
+                {source === 'bluetooth' && 'Dispositivi Bluetooth'}
+                {source === 'usb' && 'File Audio'}
               </h3>
               <button
                 onClick={() => setShowPlaylist(false)}
-                className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+                className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg"
               >
                 <span className="text-white text-xl">×</span>
               </button>
             </div>
 
             <div className="space-y-2">
-              {(source === 'radio' ? radioStations : localPlaylist).map((item) => (
+              {/* FM Stations */}
+              {source === 'radio' && fmStations.map((station, idx) => (
                 <button
-                  key={item.id}
+                  key={idx}
                   onClick={() => {
-                    play(item);
+                    tuneFMStation(station.frequency);
                     setShowPlaylist(false);
                   }}
-                  className={`w-full p-4 rounded-xl transition-colors text-left flex items-center justify-between ${
-                    currentTrack?.id === item.id
-                      ? 'bg-purple-600'
-                      : 'bg-gray-700 hover:bg-gray-600'
-                  }`}
+                  className="w-full p-4 rounded-xl bg-gray-700 hover:bg-gray-600 text-left"
                 >
-                  <div className="flex-1">
-                    <div className="text-white font-semibold">
-                      {source === 'radio' ? item.name : item.title}
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <div className="text-white font-semibold">{station.frequency} FM</div>
+                      <div className="text-sm text-gray-400">Potenza: {station.strength.toFixed(1)} dBm</div>
                     </div>
-                    <div className="text-sm text-gray-400">
-                      {source === 'radio' ? `${item.frequency} FM - ${item.genre}` : item.artist}
-                    </div>
+                    <Radio className="w-6 h-6 text-purple-400" />
                   </div>
-                  {source !== 'radio' && item.duration > 0 && (
-                    <div className="text-gray-400 text-sm">{formatTime(item.duration)}</div>
-                  )}
                 </button>
               ))}
               
-              {source !== 'radio' && localPlaylist.length === 0 && (
-                <div className="text-center py-8 text-gray-400">
-                  Nessun file caricato. Clicca su "{source === 'bluetooth' ? 'Bluetooth' : 'USB'}" per caricare file audio.
-                </div>
-              )}
+              {/* Bluetooth Devices */}
+              {source === 'bluetooth' && btDevices.map((device, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => {
+                    connectBluetooth(device.mac, device.name);
+                    setShowPlaylist(false);
+                  }}
+                  className="w-full p-4 rounded-xl bg-gray-700 hover:bg-gray-600 text-left"
+                >
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <div className="text-white font-semibold">{device.name}</div>
+                      <div className="text-sm text-gray-400">{device.mac}</div>
+                    </div>
+                    <Bluetooth className="w-6 h-6 text-blue-400" />
+                  </div>
+                </button>
+              ))}
+              
+              {/* USB Files */}
+              {source === 'usb' && usbFiles.map((file, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => {
+                    playUSBFile(file.path, file);
+                    setShowPlaylist(false);
+                  }}
+                  className="w-full p-4 rounded-xl bg-gray-700 hover:bg-gray-600 text-left"
+                >
+                  <div className="text-white font-semibold">{file.title}</div>
+                  <div className="text-sm text-gray-400">{file.artist} - {file.album}</div>
+                </button>
+              ))}
             </div>
           </div>
         </div>
